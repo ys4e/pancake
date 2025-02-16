@@ -80,3 +80,10 @@ pub fn ip_to_country(address: String) -> String {
         Err(_) => "ZZ".to_string()
     }
 }
+
+/// A generic system error.
+/// 
+/// Return whenever an internal server error occurs.
+pub fn system_error() -> RawJson<String> {
+    message_response(constants::RESPONSE_FAILURE, "System error; please try again later.", ())
+}

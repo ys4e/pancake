@@ -3,23 +3,24 @@ use rocket::{response::content::RawJson, serde::json::Json, Route};
 use rocket_db_pools::Connection;
 use rsa::Pkcs1v15Encrypt;
 use serde::{Deserialize, Serialize};
-use sqlx::MySqlConnection;
+use sqlx::{Error, MySqlConnection};
 
 use crate::{constants::{self, AccountState, RSA_PRIVATE_KEY}, db::SDK, guards::{device_id::DeviceId, ip_address::IpAddress}, utils};
 
 /// Mounts all routes.
 pub fn mount() -> Vec<Route> {
     routes![
-        shield_login
+        shield_login,
+        shield_verify
     ]
 }
 
 /// Checks if the given device needs to be authenticated.
-async fn needs_grant(db: &mut MySqlConnection, uid: i32, device_id: &DeviceId) -> bool {
+async fn needs_grant(db: &mut MySqlConnection, uid: i32, device_id: &String) -> bool {
     // Check the database for an existing device entry.
     let Ok(result) = sqlx::query!(
         "SELECT * FROM `devices` WHERE `uid` = ? AND `device` = ?",
-        uid, device_id.0
+        uid, device_id
     ).fetch_optional(&mut *db).await else {
         return true;
     };
@@ -60,10 +61,10 @@ struct LoginResult {
     realname_operation: String
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Default)]
 struct AccountData {
     /// The account's game (hk4e) unique ID.
-    uid: u32,
+    uid: i32,
 
     /// The account's username.
     /// 
@@ -134,62 +135,26 @@ struct LoginRequest {
 
 /// A response type for shield-related responses.
 #[derive(Responder)]
-enum ShieldResponse<'a> {
-    /// This should be returned when the user provides invalid data.
-    #[response(status = 400)]
-    BadRequest(&'a str),
-
-    /// This is returned in all instances of a successful login.
+enum ShieldResponse {
+    /// This is returned when an error occurs.
     #[response(status = 200)]
-    SuccessfulLogin(RawJson<String>)
+    CodedError(RawJson<String>),
+
+    /// This is returned in all instances of where a `retcode` is provided.
+    #[response(status = 200)]
+    CodedResponse(RawJson<String>)
 }
 
-/// Handles a full login request from the user.
-#[post("/mdk/shield/api/login", data = "<body>")]
-async fn shield_login<'a>(
-    mut db: Connection<SDK>,
-    body: Json<LoginRequest>, 
-    device_id: DeviceId,
-    ip_address: IpAddress
-) -> ShieldResponse<'a> {
-    // Fetch the account data from the database.
-    let Ok(account) = sqlx::query!(
-        "SELECT * FROM `accounts` WHERE `name` = ? OR `email` = ?",
-        body.account, body.account
-    ).fetch_one(&mut **db).await else {
-        return ShieldResponse::BadRequest("Incorrect username or password.");
-    };
-
-    // Check the account's satte.
-    if account.state != AccountState::Active || account.state != AccountState::PendingDelete {
-        return ShieldResponse::BadRequest("Incorrect username or password.");
-    }
-
-    // Verify the password of the account.
-    let Ok(password) = BASE64_STANDARD.decode(&body.password) else {
-        return ShieldResponse::BadRequest("Incorrect username or password.");
-    };
-    let password = if body.is_crypto {
-        match RSA_PRIVATE_KEY.decrypt(
-            Pkcs1v15Encrypt, &password
-        ) {
-            Ok(password) => password,
-            _ => return ShieldResponse::BadRequest("Incorrect username or password.")
-        }
-    } else {
-        password
-    };
-    let password = String::from_utf8(password).unwrap_or_default();
-    
-    if let Some(hashed_password) = account.password {
-        // This will only verify the password if one is set.
-        if !utils::verify_password(&password, &hashed_password) {
-            return ShieldResponse::BadRequest("Incorrect username or password.");
-        }
-    }
-
+/// Performs database queries to complete a login request.
+async fn do_login(
+    db: &mut MySqlConnection,
+    device_id: String,
+    ip_address: String,
+    account: AccountData,
+    account_state: i32
+) -> ShieldResponse {
     // Check if the account needs to be reactivated.
-    let reactivate_ticket = match account.state.try_into().unwrap() {
+    let reactivate_ticket = match account_state.try_into().unwrap() {
         AccountState::PendingDelete => {
             // Generate a reactivation ticket.
             let ticket = utils::random_token();
@@ -197,7 +162,7 @@ async fn shield_login<'a>(
             sqlx::query!(
                 "INSERT INTO `reactivate_tickets` (`ticket`, `uid`) VALUES (?, ?) ON DUPLICATE KEY UPDATE `ticket` = ?",
                 ticket, account.uid, ticket
-            ).execute(&mut **db).await.ok();
+            ).execute(&mut *db).await.ok();
 
             Some(ticket)
         },
@@ -206,14 +171,14 @@ async fn shield_login<'a>(
 
     // Check if the device needs a grant.
     let grant_ticket = {
-        if needs_grant(&mut **db, account.uid, &device_id).await {
+        if needs_grant(&mut *db, account.uid, &device_id).await {
             // Generate a grant ticket.
             let ticket = utils::random_token();
             // Insert the ticket into the database.
             sqlx::query!(
                 "INSERT INTO `grant_tickets` (`ticket`, `uid`) VALUES (?, ?) ON DUPLICATE KEY UPDATE `ticket` = ?",
                 ticket, account.uid, ticket
-            ).execute(&mut **db).await.ok();
+            ).execute(&mut *db).await.ok();
 
             Some(ticket)
         } else {
@@ -221,8 +186,8 @@ async fn shield_login<'a>(
             let current_time = utils::current_time();
             sqlx::query!(
                 "INSERT INTO `devices` (`uid`, `device`, `epoch_lastseen`) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE `epoch_lastseen` = ?",
-                account.uid, device_id.0, current_time, current_time
-            ).execute(&mut **db).await.ok();
+                account.uid, device_id, current_time, current_time
+            ).execute(&mut *db).await.ok();
 
             None
         }
@@ -233,8 +198,8 @@ async fn shield_login<'a>(
         // Check if an existing token is present.
         let result = match sqlx::query!(
             "SELECT * FROM `login_tokens` WHERE `uid` = ? AND `device` = ?",
-            account.uid, device_id.0
-        ).fetch_optional(&mut **db).await {
+            account.uid, device_id
+        ).fetch_optional(&mut *db).await {
             Ok(Some(entry)) => Some(entry),
             _ => None
         };
@@ -247,8 +212,8 @@ async fn shield_login<'a>(
                 // Insert the token into the database.
                 sqlx::query!(
                     "INSERT INTO `login_tokens` (`uid`, `device`, `token`) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE `token` = ?",
-                    account.uid, device_id.0, token, token
-                ).execute(&mut **db).await.ok();
+                    account.uid, device_id, token, token
+                ).execute(&mut *db).await.ok();
 
                 token
             }
@@ -256,17 +221,10 @@ async fn shield_login<'a>(
     };
     
     // Determine the country code.
-    let country = utils::ip_to_country(ip_address.0);
+    let country = utils::ip_to_country(ip_address);
 
     let login_data = LoginResult {
         account: AccountData {
-            uid: account.uid as u32,
-            name: utils::mask_string(&account.name.unwrap_or_default()),
-            email: utils::mask_string(&account.email.unwrap_or_default()),
-            mobile: utils::mask_string(&account.mobile.unwrap_or_default()),
-            is_email_verify: false,
-            realname: String::default(),
-            identity_card: String::default(),
             token, country,
             device_grant_ticket: match grant_ticket {
                 Some(ref ticket) => Some(ticket.clone()),
@@ -275,7 +233,8 @@ async fn shield_login<'a>(
             reactivate_ticket: match reactivate_ticket {
                 Some(ref ticket) => Some(ticket.clone()),
                 None => None
-            }
+            },
+            ..account
         },
         realperson_required: false,
         device_grant_required: grant_ticket.is_some(),
@@ -283,5 +242,130 @@ async fn shield_login<'a>(
         reactivate_required: reactivate_ticket.is_some(),
         realname_operation: constants::REALNAME_OP_NONE.to_string()
     };
-    ShieldResponse::SuccessfulLogin(utils::message_response(constants::RESPONSE_SUCCESS, "OK", login_data))
+
+    ShieldResponse::CodedResponse(utils::message_response(constants::RESPONSE_SUCCESS, constants::MESSAGE_SUCCESS, login_data))
+}
+
+/// Handles a full login request from the user.
+#[post("/mdk/shield/api/login", data = "<body>")]
+async fn shield_login(
+    mut db: Connection<SDK>,
+    body: Json<LoginRequest>, 
+    device_id: DeviceId,
+    ip_address: IpAddress
+) -> ShieldResponse {
+    // Fetch the account data from the database.
+    let Ok(account) = sqlx::query!(
+        "SELECT * FROM `accounts` WHERE `name` = ? OR `email` = ?",
+        body.account, body.account
+    ).fetch_one(&mut **db).await else {
+        return ShieldResponse::CodedError(utils::system_error());
+    };
+
+    // Check the account's satte.
+    if account.state != AccountState::Active || account.state != AccountState::PendingDelete {
+        return ShieldResponse::CodedError(
+            utils::message_response(constants::RESPONSE_LOGIN_FAILED, constants::MESSAGE_INVALID_CREDS, ())
+        );
+    }
+
+    // Verify the password of the account.
+    let Ok(password) = BASE64_STANDARD.decode(&body.password) else {
+        return ShieldResponse::CodedError(utils::system_error());
+    };
+    let password = if body.is_crypto {
+        match RSA_PRIVATE_KEY.decrypt(
+            Pkcs1v15Encrypt, &password
+        ) {
+            Ok(password) => password,
+            _ => return ShieldResponse::CodedError(utils::system_error())
+        }
+    } else {
+        password
+    };
+    let password = String::from_utf8(password).unwrap_or_default();
+    
+    if let Some(hashed_password) = account.password {
+        // This will only verify the password if one is set.
+        if !utils::verify_password(&password, &hashed_password) {
+            return ShieldResponse::CodedError(
+                utils::message_response(constants::RESPONSE_LOGIN_FAILED, constants::MESSAGE_INVALID_CREDS, ())
+            );
+        }
+    }
+
+    // Prepare initial account data.
+    let account_data = AccountData {
+        uid: account.uid,
+        name: utils::mask_string(&account.name.unwrap_or_default()),
+        email: utils::mask_string(&account.email.unwrap_or_default()),
+        mobile: utils::mask_string(&account.mobile.unwrap_or_default()),
+        is_email_verify: false,
+        ..Default::default()
+    };
+    do_login(&mut **db, device_id.0, ip_address.0, account_data, account.state).await
+}
+
+#[derive(Deserialize)]
+struct VerifyRequest {
+    /// The account's unique ID.
+    uid: u32,
+
+    /// The login token given in `shield_login`.
+    token: String
+}
+
+/// Verifies a user's identity, given a token and device ID.
+#[post("/mdk/shield/api/verify", data = "<body>")]
+async fn shield_verify(
+    mut db: Connection<SDK>,
+    body: Json<VerifyRequest>,
+    device_id: DeviceId,
+    ip_address: IpAddress
+) -> ShieldResponse {
+    // Check if the login token exists.
+    let result = match sqlx::query!(
+        "SELECT * FROM `login_tokens` WHERE `uid` = ? AND `token` = ? AND `device` = ?",
+        body.uid, body.token, device_id.0
+    ).fetch_one(&mut **db).await {
+        Ok(result) => result,
+        Err(Error::RowNotFound) => return ShieldResponse::CodedResponse(
+            utils::message_response(constants::RESPONSE_LOGIN_FAILED, constants::MESSAGE_BAD_TOKEN, ())
+        ),
+        Err(_) => return ShieldResponse::CodedResponse(utils::system_error())
+    };
+
+    // Get the account associated with the token.
+    let account = match sqlx::query!(
+        "SELECT * FROM `accounts` WHERE `uid` = ?",
+        result.uid
+    ).fetch_one(&mut **db).await {
+        Ok(account) => account,
+        _ => return ShieldResponse::CodedResponse(utils::system_error())
+    };
+
+    // Check the account state.
+    if account.state != AccountState::Active {
+        return ShieldResponse::CodedResponse(
+            utils::message_response(constants::RESPONSE_LOGIN_FAILED, constants::MESSAGE_BAD_TOKEN, ())
+        );
+    }
+
+    // Compare the device ID to the stored one.
+    if result.device != device_id.0 {
+        return ShieldResponse::CodedResponse(
+            utils::message_response(constants::RESPONSE_LOGIN_FAILED, constants::MESSAGE_NEW_DEVICE, ())
+        );
+    }
+
+    // Prepare the account data.
+    let account_data = AccountData {
+        uid: account.uid,
+        name: utils::mask_string(&account.name.unwrap_or_default()),
+        email: utils::mask_string(&account.email.unwrap_or_default()),
+        mobile: utils::mask_string(&account.mobile.unwrap_or_default()),
+        is_email_verify: false,
+        ..Default::default()
+    };
+    do_login(&mut **db, device_id.0, ip_address.0, account_data, account.state).await
 }
