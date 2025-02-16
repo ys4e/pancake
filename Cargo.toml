@@ -24,12 +24,16 @@ urlencoding = "2"
 anyhow = "1"
 log = "0.4"
 validator = { version = "0.20", features = ["derive"] }
+rsa = "0.9"
+lazy_static = "1"
+rand = "0.9"
+maxminddb = "0.24"
 
 # Data storage
 sqlx = { version = "*", features = ["macros"] }
 
 # Web framework
-rocket = "0.5.1"
+rocket = { version = "0.5.1", features = ["json"] }
 rocket_db_pools = { version = "0.2.0", features = ["sqlx_mysql"] }
 futures = "0.3.31"
 

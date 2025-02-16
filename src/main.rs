@@ -3,6 +3,7 @@
 mod db;
 mod utils;
 mod routes;
+mod guards;
 mod constants;
 
 use rocket_db_pools::Database;
@@ -29,6 +30,8 @@ async fn main() -> Result<(), rocket::Error> {
     let _rocket = rocket::build()
         .attach(SDK::init())
         .mount("/", routes![health, favicon])
+        .mount("/hk4e_global", routes::hk4e::shield::mount())
+        .mount("/hk4e_cn", routes::hk4e::shield::mount())
         .mount("/account", routes::account::mount())
         .launch()
         .await?;

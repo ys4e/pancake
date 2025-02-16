@@ -1,0 +1,12 @@
+{
+  "db_name": "MySQL",
+  "query": "INSERT INTO `reactivate_tickets` (`ticket`, `uid`) VALUES (?, ?) ON DUPLICATE KEY UPDATE `ticket` = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": []
+  },
+  "hash": "2723578d16dca08cd6b28337fb84114ff7dde96144e58b9c5317fb069dbdb2a1"
+}
