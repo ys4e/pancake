@@ -71,26 +71,26 @@ async fn account_register<'a>(
         form.username, form.email
     ).fetch_one(&mut **db).await {
         Err(Error::RowNotFound) => (),
-        Ok(_) => return AccountResponse::BadRequest("An account with that username or email already exists."),
-        _ => return AccountResponse::ServerError("An internal server error has occurred.")
+        Ok(_) => return AccountResponse::BadRequest(constants::MESSAGE_EXISTING_USER),
+        _ => return AccountResponse::ServerError(constants::MESSAGE_SERVER_ERROR)
     }
 
     // Validate the user provided data.
     match form.validate() {
         Ok(_) => (),
-        Err(_) => return AccountResponse::BadRequest("Invalid account data specified."),
+        Err(_) => return AccountResponse::BadRequest(constants::MESSAGE_INVALID_FORM),
     }
 
     // Check if the passwords match.
     let password = form.passwordv1.trim();
     if password != form.passwordv2 {
-        return AccountResponse::BadRequest("The passwords do not match.");
+        return AccountResponse::BadRequest(constants::MESSAGE_MISMATCH_PASSWORD);
     }
 
     // Hash the password for storage in the database.
     let hashed = match utils::hash_password(password) {
         Ok(hash) => hash,
-        Err(_) => return AccountResponse::ServerError("An internal server error has occurred.")
+        Err(_) => return AccountResponse::ServerError(constants::MESSAGE_SERVER_ERROR)
     };
 
     // Insert the user into the database.
@@ -98,7 +98,7 @@ async fn account_register<'a>(
         "INSERT INTO `accounts` (`name`, `email`, `password`, `epoch_created`) VALUES (?, ?, ?, ?)",
         form.username, form.email, hashed, utils::current_time()
     ).execute(&mut **db).await else {
-        return AccountResponse::ServerError("An internal server error has occurred.");
+        return AccountResponse::ServerError(constants::MESSAGE_SERVER_ERROR);
     };
 
     // If the type is `sdk`, redirect the user.
@@ -116,5 +116,5 @@ async fn account_register<'a>(
         }
     }
 
-    AccountResponse::Successful("Account created. Please close this page and login in the game.")
+    AccountResponse::Successful(constants::MESSAGE_ACCOUNT_CREATED)
 }

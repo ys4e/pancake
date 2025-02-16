@@ -24,12 +24,22 @@ pub const RESPONSE_LOGIN_FAILED: i16 = -101;
 
 /// This is the default message used in conjunction with `RESPONSE_SUCCESS`.
 pub const MESSAGE_SUCCESS: &str = "OK";
+/// Used when a new user account is successfully created.
+pub const MESSAGE_ACCOUNT_CREATED: &str = "Account created. Please close this page and login in the game.";
+/// Used whenever the server encounters an error.
+pub const MESSAGE_SERVER_ERROR: &str = "System error; please try again later.";
+/// Used whenever the user provides invalid form data.
+pub const MESSAGE_INVALID_FORM: &str = "Invalid form data provided.";
+/// Used whenever the user provides two passwords that do not match.
+pub const MESSAGE_MISMATCH_PASSWORD: &str = "The passwords do not match.";
 /// Used whenever the user provides an invalid or bad token.
 pub const MESSAGE_BAD_TOKEN: &str = "Game account cache information error.";
 /// Used whenever the stored token's device ID does not match the given device ID.
 pub const MESSAGE_NEW_DEVICE: &str = "For your security, please login again.";
 /// Used whenever the user's password or username doesn't match.
 pub const MESSAGE_INVALID_CREDS: &str = "Incorrect username or password.";
+/// Used whenever an account with the given username or email already exists.
+pub const MESSAGE_EXISTING_USER: &str = "An account with that username or email already exists.";
 
 /// Represents the account state.
 #[derive(Clone, Copy)]
