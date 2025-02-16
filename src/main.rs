@@ -1,0 +1,37 @@
+#[macro_use] extern crate rocket;
+
+mod db;
+mod utils;
+mod routes;
+mod constants;
+
+use rocket_db_pools::Database;
+use crate::db::SDK;
+
+/// A result type for request handlers that returns a message for an error.
+pub type MessageResult<R> = Result<R, &'static str>;
+
+/// Health route to check if the server is running.
+#[get("/health")]
+fn health() -> &'static str {
+    "OK"
+}
+
+/// Returns the server's favicon.
+#[get("/favicon.ico")]
+fn favicon() -> &'static [u8] {
+    include_bytes!("../resources/assets/favicon.ico")
+}
+
+#[rocket::main]
+async fn main() -> Result<(), rocket::Error> {
+    // Create the web app.
+    let _rocket = rocket::build()
+        .attach(SDK::init())
+        .mount("/", routes![health, favicon])
+        .mount("/account", routes::account::mount())
+        .launch()
+        .await?;
+
+    Ok(())
+}

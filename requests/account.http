@@ -1,0 +1,5 @@
+### Create an account
+POST http://127.0.0.1:8000/account/register?type=sdk
+Content-Type: application/x-www-form-urlencoded
+
+username=test&email=test@example.com&passwordv1=testtest&passwordv2=testtest

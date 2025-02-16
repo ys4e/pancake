@@ -1,0 +1,4 @@
+### This is an example configuration file for Rocket.
+
+[default.databases.sdk]
+url = "mysql://user:password@127.0.0.1/sdk"

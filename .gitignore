@@ -1,0 +1,8 @@
+/target
+/.idea
+
+# Sensitive data.
+.env*
+
+# Rocket configuration files.
+Rocket.*.toml

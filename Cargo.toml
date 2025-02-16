@@ -1,0 +1,55 @@
+cargo-features = ["profile-rustflags", "trim-paths"]
+
+[package]
+name = "pancake"
+version = "0.1.0"
+authors = ["KingRainbow44"]
+description = "SDK REST API server implementation"
+license = "MIT"
+readme = "README.md"
+repository = "https://github.com/ys4e/pancake"
+edition = "2021"
+
+[dependencies]
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+base64 = "0.22"
+bcrypt = "0.17"
+urlencoding = "2"
+
+# Developer Tools
+anyhow = "1"
+log = "0.4"
+validator = { version = "0.20", features = ["derive"] }
+
+# Data storage
+sqlx = { version = "*", features = ["macros"] }
+
+# Web framework
+rocket = "0.5.1"
+rocket_db_pools = { version = "0.2.0", features = ["sqlx_mysql"] }
+futures = "0.3.31"
+
+[dev-dependencies]
+
+### The following are from Tauri's 'Cargo Configuration' page.
+### See: https://v2.tauri.app/concept/size
+
+[profile.dev]
+
+opt-level = 1 # Prioritizes faster compile times.
+incremental = true # Compile your binary in smaller steps.
+rustflags = ["-Zthreads=8"] # Better compile performance.
+
+[profile.release]
+
+codegen-units = 1 # Allows LLVM to perform better optimization.
+lto = true # Enables link-time-optimizations.
+opt-level = 3 # Prioritizes small binary size. Use `3` if you prefer speed.
+panic = "abort" # Higher performance by disabling panic handlers.
+strip = true # Ensures debug symbols are removed.
+trim-paths = "all" # Removes potentially privileged information from your binaries.
+rustflags = ["-Cdebuginfo=0", "-Zthreads=8"] # Better compile performance.
