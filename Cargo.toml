@@ -10,6 +10,14 @@ readme = "README.md"
 repository = "https://github.com/ys4e/pancake"
 edition = "2021"
 
+[lib]
+name = "pancake"
+path = "src/lib.rs"
+
+[[bin]]
+name = "pancake-server"
+path = "src/main.rs"
+
 [dependencies]
 
 # Serialization
@@ -27,7 +35,7 @@ validator = { version = "0.20", features = ["derive"] }
 rsa = "0.9"
 lazy_static = "1"
 rand = "0.9"
-maxminddb = "0.24"
+maxminddb = "0.25"
 
 # Data storage
 sqlx = { version = "*", features = ["macros"] }
